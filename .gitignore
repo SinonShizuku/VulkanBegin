@@ -33,3 +33,11 @@
 
 # build files
 cmake-build-debug
+# JetBrains IDE
+.idea/
+*.iml
+
+# CMake build directories
+cmake-build-*/
+build/
+out/
