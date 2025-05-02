@@ -1,1 +1,0 @@
-/usr/bin/c++ -g CMakeFiles/vulkan_learning.dir/main.cpp.o -o vulkan_learning  -lglfw -lvulkan 
