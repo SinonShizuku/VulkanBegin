@@ -10,6 +10,7 @@ add_executable(vulkan_learning main.cpp
         myVulkan/VKBase+.h
         myVulkan/VKUtils.h
         myVulkan/VKBase.hpp
+        myVulkan/EasyVulkan.hpp
 )
 
 target_link_libraries(vulkan_learning glfw vulkan)

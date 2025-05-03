@@ -98,7 +98,7 @@ namespace myVulkan{
         VkCommandBuffer handle = VK_NULL_HANDLE;
     public:
         commandBuffer() = default;
-        commandBuffer(commandBuffer&& other) noexcept { MoveHandle; }
+        commandBuffer(commandBuffer&& other) noexcept { MoveHandle }
         //因释放命令缓冲区的函数被我定义在封装命令池的commandPool类中，没析构器
         //Getter
         DefineHandleTypeOperator;
@@ -192,4 +192,188 @@ namespace myVulkan{
         }
     };
 
+    //渲染通道
+    class renderPass {
+        VkRenderPass handle = VK_NULL_HANDLE;
+    public:
+        renderPass() = default;
+        renderPass(VkRenderPassCreateInfo& createInfo) {
+            Create(createInfo);
+        }
+        renderPass(renderPass&& other) noexcept { MoveHandle; }
+        ~renderPass() { DestroyHandleBy(vkDestroyRenderPass); }
+        //Getter
+        DefineHandleTypeOperator;
+        DefineAddressFunction;
+        //Const Function
+        void CmdBegin(VkCommandBuffer commandBuffer, VkRenderPassBeginInfo& beginInfo, VkSubpassContents subpassContents = VK_SUBPASS_CONTENTS_INLINE) const {
+            beginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+            beginInfo.renderPass = handle;
+            vkCmdBeginRenderPass(commandBuffer, &beginInfo, subpassContents);
+        }
+        void CmdBegin(VkCommandBuffer commandBuffer, VkFramebuffer framebuffer, VkRect2D renderArea, arrayRef<const VkClearValue> clearValues = {}, VkSubpassContents subpassContents = VK_SUBPASS_CONTENTS_INLINE) const {
+            VkRenderPassBeginInfo beginInfo = {
+                    .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+                    .renderPass = handle,
+                    .framebuffer = framebuffer,
+                    .renderArea = renderArea,
+                    .clearValueCount = uint32_t(clearValues.Count()),
+                    .pClearValues = clearValues.Pointer()
+            };
+            vkCmdBeginRenderPass(commandBuffer, &beginInfo, subpassContents);
+        }
+        void CmdNext(VkCommandBuffer commandBuffer, VkSubpassContents subpassContents = VK_SUBPASS_CONTENTS_INLINE) const {
+            vkCmdNextSubpass(commandBuffer, subpassContents);
+        }
+        void CmdEnd(VkCommandBuffer commandBuffer) const {
+            vkCmdEndRenderPass(commandBuffer);
+        }
+        //Non-const Function
+        result_t Create(VkRenderPassCreateInfo& createInfo) {
+            createInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+            VkResult result = vkCreateRenderPass(graphicsBase::Base().Device(), &createInfo, nullptr, &handle);
+            if (result)
+                outStream << std::format("[ renderPass ] ERROR\nFailed to create a render pass!\nError code: {}\n", int32_t(result));
+            return result;
+        }
+    };
+
+    class framebuffer {
+        VkFramebuffer handle = VK_NULL_HANDLE;
+    public:
+        framebuffer() = default;
+        framebuffer(VkFramebufferCreateInfo& createInfo) {
+            Create(createInfo);
+        }
+        framebuffer(framebuffer&& other) noexcept { MoveHandle; }
+        ~framebuffer() { DestroyHandleBy(vkDestroyFramebuffer); }
+        //Getter
+        DefineHandleTypeOperator;
+        DefineAddressFunction;
+        //Non-const Function
+        result_t Create(VkFramebufferCreateInfo& createInfo) {
+            createInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+            VkResult result = vkCreateFramebuffer(graphicsBase::Base().Device(), &createInfo, nullptr, &handle);
+            if (result)
+                outStream << std::format("[ framebuffer ] ERROR\nFailed to create a framebuffer!\nError code: {}\n", int32_t(result));
+            return result;
+        }
+    };
+
+    // 渲染管线布局
+    class pipelineLayout {
+        VkPipelineLayout handle = VK_NULL_HANDLE;
+    public:
+        pipelineLayout() = default;
+        pipelineLayout(VkPipelineLayoutCreateInfo& createInfo) {
+            Create(createInfo);
+        }
+        pipelineLayout(pipelineLayout&& other) noexcept { MoveHandle; }
+        ~pipelineLayout() { DestroyHandleBy(vkDestroyPipelineLayout); }
+        //Getter
+        DefineHandleTypeOperator;
+        DefineAddressFunction;
+        //Non-const Function
+        result_t Create(VkPipelineLayoutCreateInfo& createInfo) {
+            createInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+            VkResult result = vkCreatePipelineLayout(graphicsBase::Base().Device(), &createInfo, nullptr, &handle);
+            if (result)
+                outStream << std::format("[ pipelineLayout ] ERROR\nFailed to create a pipeline layout!\nError code: {}\n", int32_t(result));
+            return result;
+        }
+    };
+
+    // 渲染管线封装
+    class pipeline {
+        VkPipeline handle = VK_NULL_HANDLE;
+    public:
+        pipeline() = default;
+        pipeline(VkGraphicsPipelineCreateInfo& createInfo) {
+            Create(createInfo);
+        }
+        pipeline(VkComputePipelineCreateInfo& createInfo) {
+            Create(createInfo);
+        }
+        pipeline(pipeline&& other) noexcept { MoveHandle; }
+        ~pipeline() { DestroyHandleBy(vkDestroyPipeline); }
+        //Getter
+        DefineHandleTypeOperator;
+        DefineAddressFunction;
+        //Non-const Function
+        result_t Create(VkGraphicsPipelineCreateInfo& createInfo) {
+            createInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+            VkResult result = vkCreateGraphicsPipelines(graphicsBase::Base().Device(), VK_NULL_HANDLE, 1, &createInfo, nullptr, &handle);
+            if (result)
+                outStream << std::format("[ pipeline ] ERROR\nFailed to create a graphics pipeline!\nError code: {}\n", int32_t(result));
+            return result;
+        }
+        result_t Create(VkComputePipelineCreateInfo& createInfo) {
+            createInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+            VkResult result = vkCreateComputePipelines(graphicsBase::Base().Device(), VK_NULL_HANDLE, 1, &createInfo, nullptr, &handle);
+            if (result)
+                outStream << std::format("[ pipeline ] ERROR\nFailed to create a compute pipeline!\nError code: {}\n", int32_t(result));
+            return result;
+        }
+    };
+
+    //封装着色器模组
+    class shaderModule {
+        VkShaderModule handle = VK_NULL_HANDLE;
+    public:
+        shaderModule() = default;
+        shaderModule(VkShaderModuleCreateInfo& createInfo) {
+            Create(createInfo);
+        }
+        shaderModule(const char* filepath /*VkShaderModuleCreateFlags flags*/) {
+            Create(filepath);
+        }
+        shaderModule(size_t codeSize, const uint32_t* pCode /*VkShaderModuleCreateFlags flags*/) {
+            Create(codeSize, pCode);
+        }
+        shaderModule(shaderModule&& other) noexcept { MoveHandle; }
+        ~shaderModule() { DestroyHandleBy(vkDestroyShaderModule); }
+        //Getter
+        DefineHandleTypeOperator;
+        DefineAddressFunction;
+        //Const Function
+        VkPipelineShaderStageCreateInfo StageCreateInfo(VkShaderStageFlagBits stage, const char* entry = "main") const {
+            return {
+                    VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,//sType
+                    nullptr,                                            //pNext
+                    0,                                                  //flags
+                    stage,                                              //stage
+                    handle,                                             //module
+                    entry,                                              //pName
+                    nullptr                                             //pSpecializationInfo
+            };
+        }
+        //Non-const Function
+        result_t Create(VkShaderModuleCreateInfo& createInfo) {
+            createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+            VkResult result = vkCreateShaderModule(graphicsBase::Base().Device(), &createInfo, nullptr, &handle);
+            if (result)
+                outStream << std::format("[ shader ] ERROR\nFailed to create a shader module!\nError code: {}\n", int32_t(result));
+            return result;
+        }
+        result_t Create(const char* filepath /*VkShaderModuleCreateFlags flags*/) {
+            std::ifstream file(filepath, std::ios::ate | std::ios::binary);
+            if (!file) {
+                outStream << std::format("[ shader ] ERROR\nFailed to open the file: {}\n", filepath);
+                return VK_RESULT_MAX_ENUM;//没有合适的错误代码，别用VK_ERROR_UNKNOWN
+            }
+            size_t fileSize = size_t(file.tellg());
+            std::vector<uint32_t> binaries(fileSize / 4);
+            file.seekg(0);
+            file.read(reinterpret_cast<char*>(binaries.data()), fileSize);
+            file.close();
+            return Create(fileSize, binaries.data());
+        }
+        result_t Create(size_t codeSize, const uint32_t* pCode /*VkShaderModuleCreateFlags flags*/) {
+            VkShaderModuleCreateInfo createInfo = {
+                    .codeSize = codeSize,
+                    .pCode = pCode
+            };
+            return Create(createInfo);
+        }
+    };
 }
