@@ -225,7 +225,7 @@ inline void(*result_t::callback_throw)(VkResult);
         void AddCallback_CreateSwapchain(std::function<void()> function);
         void AddCallback_DestroySwapchain(std::function<void()> function);
         result_t CreateSwapchain(bool limitFrameRate = true, VkSwapchainCreateFlagsKHR flags = 0);
-        result_t RecreateSwapchain(bool limitFrameRate = true);
+        result_t RecreateSwapchain();
         result_t AcquireNextImage(VkSemaphore presentCompleteSemaphore, VkFence fence = VK_NULL_HANDLE);
 
         //use api
@@ -234,6 +234,25 @@ inline void(*result_t::callback_throw)(VkResult);
         result_t SwapImage(VkSemaphore semaphore_imageIsAvailable);
 
         result_t SubmitCommandBuffer_Graphics(VkSubmitInfo &submitInfo, VkFence fence) const;
+
+        result_t SubmitCommandBuffer_Graphics(VkCommandBuffer commandBuffer, VkSemaphore semaphore_imageIsAvailable,
+                                              VkSemaphore semaphore_renderingIsOver, VkFence fence,
+                                              VkPipelineStageFlags waitDstStage_imageIsAvailable) const;
+
+        result_t SubmitCommandBuffer_Graphics(VkCommandBuffer commandBuffer, VkFence fence) const;
+
+        result_t SubmitCommandBuffer_Compute(VkSubmitInfo &submitInfo, VkFence fence) const;
+
+        result_t SubmitCommandBuffer_Compute(VkCommandBuffer commandBuffer, VkFence fence) const;
+
+        result_t PresentImage(VkPresentInfoKHR &presentInfo);
+
+        result_t PresentImage(VkSemaphore semaphore_renderingIsOver);
+
+        void CmdTransferImageOwnership(VkCommandBuffer commandBuffer) const;
+
+        result_t SubmitCommandBuffer_Presentation(VkCommandBuffer commandBuffer, VkSemaphore semaphore_renderingIsOver,
+                                                  VkSemaphore semaphore_ownershipIsTransfered, VkFence fence) const;
     }; // end class graphicsBase
 
-} // namespace myVulkan 
+} // namespace myVulkan

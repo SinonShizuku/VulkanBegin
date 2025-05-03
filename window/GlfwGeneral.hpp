@@ -16,7 +16,7 @@ const char* windowTitle = "EasyVK";
 //窗口状态
 bool isFullScreen;
 //窗口尺寸
-VkExtent2D windowSize;
+VkExtent2D glfwWindowSize;
 
 void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods);
 void MakeWindowFullScreen();
@@ -47,7 +47,7 @@ bool InitializeWindow(VkExtent2D size, bool fullScreen = false, bool isResizable
         return false;
     }
     //获取窗口信息
-    windowSize = size;
+    glfwWindowSize = size;
     ::isFullScreen = fullScreen;
     if(fullScreen) MakeWindowFullScreen();
 
@@ -152,7 +152,7 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
     {
         if(isFullScreen)
         {
-            MakeWindowWindowed({0,0},windowSize);
+            MakeWindowWindowed({0,0}, glfwWindowSize);
             isFullScreen = false;
 
         }

@@ -18,7 +18,8 @@
 #include <chrono>
 #include <numeric>
 #include <numbers>
-#include <string.h>
+#include <cstring>
+#include <stdexcept>
 
 //GLM
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE

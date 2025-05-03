@@ -4,9 +4,6 @@
 
 #pragma once
 #include "VKBase.hpp"
-#include <cstring>
-#include <format>
-#include <stdexcept>
 
 //定义myVulkan命名空间
 namespace myVulkan {
@@ -731,23 +728,38 @@ namespace myVulkan {
             i();
         return VK_SUCCESS;
     }
-    result_t graphicsBase::RecreateSwapchain(bool limitFrameRate) {
-        WaitIdle();
-        //销毁旧交换链图像和交换链
+    VkResult graphicsBase::RecreateSwapchain() {
+        VkSurfaceCapabilitiesKHR surfaceCapabilities = {};
+        if (VkResult result = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, surface, &surfaceCapabilities)) {
+            std::cout << std::format("[ graphicsBase ] ERROR\nFailed to get physical device surface capabilities!\nError code: {}\n", int32_t(result));
+            return result;
+        }
+        if (surfaceCapabilities.currentExtent.width == 0 ||
+            surfaceCapabilities.currentExtent.height == 0)
+            return VK_SUBOPTIMAL_KHR;
+        swapchainCreateInfo.imageExtent = surfaceCapabilities.currentExtent;
+        swapchainCreateInfo.oldSwapchain = swapchain;
+        VkResult result = vkQueueWaitIdle(queue_graphics);
+        if (result == VK_SUCCESS &&
+            queue_graphics != queue_presentation)
+            result = vkQueueWaitIdle(queue_presentation);
+        if (result) {
+            std::cout << std::format("[ graphicsBase ] ERROR\nFailed to wait for the queue to be idle!\nError code: {}\n", int32_t(result));
+            return result;
+        }
+        //销毁旧交换链相关对象
         for (auto& i : callbacks_destroySwapchain)
             i();
         for (auto& i : swapchainImageViews)
             if (i)
                 vkDestroyImageView(device, i, nullptr);
-        if (swapchain)
-            vkDestroySwapchainKHR(device, swapchain, nullptr);
-        //注意：不可销毁旧交换链
-        swapchainImageViews.clear();
-        swapchainImages.clear();
-        callbacks_createSwapchain.clear();
-        callbacks_destroySwapchain.clear();
-        //重新创建交换链
-        return CreateSwapchain(limitFrameRate, swapchainCreateInfo.flags);
+        swapchainImageViews.resize(0);
+        //创建新交换链及与之相关的对象
+        if (VkResult result = CreateSwapchain_Internal())
+            return result;
+        for (auto& i : callbacks_createSwapchain)
+            i();
+        return VK_SUCCESS;
     }
 
     //获取交换链图像索引到currentImageIndex，以及在需要重建交换链时调用RecreateSwapchain()、重建交换链后销毁旧交换链
@@ -779,7 +791,7 @@ namespace myVulkan {
         return VK_SUCCESS;
     }
 
-    //该函数用于将命令缓冲区提交到用于图形的队列
+    //用于将命令缓冲区提交到用于图形的队列
     result_t graphicsBase::SubmitCommandBuffer_Graphics(VkSubmitInfo& submitInfo, VkFence fence = VK_NULL_HANDLE) const {
         submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
         VkResult result = vkQueueSubmit(queue_graphics, 1, &submitInfo, fence);
@@ -788,5 +800,124 @@ namespace myVulkan {
         return result;
     }
 
+    //重构SubmitCommandBuffer_Graphics函数，处理渲染循环中将命令缓冲区提交到图形队列的常见情形
+    result_t graphicsBase::SubmitCommandBuffer_Graphics(VkCommandBuffer commandBuffer,
+                                                        VkSemaphore semaphore_imageIsAvailable = VK_NULL_HANDLE, VkSemaphore semaphore_renderingIsOver = VK_NULL_HANDLE, VkFence fence = VK_NULL_HANDLE,
+                                                        VkPipelineStageFlags waitDstStage_imageIsAvailable = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT) const{
+        VkSubmitInfo submitInfo = {
+                .commandBufferCount = 1,
+                .pCommandBuffers = &commandBuffer
+        };
 
+        //如果图像可用信号量不为空，则设置提交信息结构体中的信号量数量、等待信号量和等待阶段
+        if(semaphore_imageIsAvailable){
+            submitInfo.waitSemaphoreCount=1;
+            submitInfo.pWaitSemaphores = &semaphore_imageIsAvailable;
+            submitInfo.pWaitDstStageMask = &waitDstStage_imageIsAvailable;
+        }
+        //如果渲染完成信号量不为空，则设置提交信息结构体中的信号量数量和信号量
+        if(semaphore_renderingIsOver){
+            submitInfo.signalSemaphoreCount = 1;
+            submitInfo.pSignalSemaphores = &semaphore_renderingIsOver;
+        }
+        return SubmitCommandBuffer_Graphics(submitInfo, fence);
+    }
+
+    //将命令缓冲区提交到用于图形的队列，且只使用栅栏
+    result_t graphicsBase::SubmitCommandBuffer_Graphics(VkCommandBuffer commandBuffer, VkFence fence = VK_NULL_HANDLE) const{
+        VkSubmitInfo submitInfo = {
+                .commandBufferCount = 1,
+                .pCommandBuffers = &commandBuffer
+        };
+        return SubmitCommandBuffer_Graphics(submitInfo, fence);
+    }
+
+    //用于将命令缓冲区提交到用于计算的队列
+    result_t graphicsBase::SubmitCommandBuffer_Compute(VkSubmitInfo& submitInfo, VkFence fence = VK_NULL_HANDLE) const{
+        submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        VkResult result = vkQueueSubmit(queue_compute, 1, &submitInfo, fence);
+        if(result){
+            outStream <<std::format("[ graphicsBase ] ERROR\nFailed to submit the command buffer!\nError code: {}\n", int32_t(result));
+        }
+        return result;
+    }
+
+    //将命令缓冲区提交到用于计算的队列，且只使用栅栏
+    result_t graphicsBase::SubmitCommandBuffer_Compute(VkCommandBuffer commandBuffer, VkFence fence = VK_NULL_HANDLE) const{
+        VkSubmitInfo submitInfo = {
+                .commandBufferCount = 1,
+                .pCommandBuffers = &commandBuffer
+        };
+        return SubmitCommandBuffer_Compute(submitInfo, fence);
+    }
+
+    result_t graphicsBase::PresentImage(VkPresentInfoKHR& presentInfo){
+        presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+        switch(VkResult result = vkQueuePresentKHR(queue_presentation, &presentInfo)){
+            case VK_SUCCESS:
+                return VK_SUCCESS;
+            // 如果返回值为VK_SUBOPTIMAL_KHR，则表示设备不支持请求的格式，但仍然可以继续使用
+            case VK_SUBOPTIMAL_KHR:
+            case VK_ERROR_OUT_OF_DATE_KHR:
+                return RecreateSwapchain();
+            default:
+                outStream << std::format("[ graphicsBase ] ERROR\nFailed to queue the image for presentation!\nError code: {}\n", int32_t(result));
+                return result;
+        }
+    }
+
+    //该函数用于在渲染循环中呈现图像的常见情形
+    result_t graphicsBase::PresentImage(VkSemaphore semaphore_renderingIsOver = VK_NULL_HANDLE) {
+        VkPresentInfoKHR presentInfo = {
+                .swapchainCount = 1,
+                .pSwapchains = &swapchain,
+                .pImageIndices = &currentImageIndex
+        };
+        if (semaphore_renderingIsOver)
+            presentInfo.waitSemaphoreCount = 1,
+                    presentInfo.pWaitSemaphores = &semaphore_renderingIsOver;
+        return PresentImage(presentInfo);
+    }
+
+    //在图形队列和呈现队列之间传输图像的所有权
+    void graphicsBase::CmdTransferImageOwnership(VkCommandBuffer commandBuffer) const {
+        // 创建一个VkImageMemoryBarrier结构体，用于在图形队列和呈现队列之间传输图像的所有权
+        VkImageMemoryBarrier imageMemoryBarrier_g2p = {
+                .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER, // 结构体类型
+                .srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, // 源访问掩码
+                .dstAccessMask = 0, // 目标访问掩码
+                .oldLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, // 旧布局
+                .newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, // 新布局
+                .srcQueueFamilyIndex = queueFamilyIndex_graphics, // 源队列族索引
+                .dstQueueFamilyIndex = queueFamilyIndex_presentation, // 目标队列族索引
+                .image = swapchainImages[currentImageIndex], // 图像
+                .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1} // 子资源范围
+        };
+        // 使用vkCmdPipelineBarrier函数在图形队列和呈现队列之间传输图像的所有权
+        vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                             VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0,
+                             0, nullptr, 0, nullptr, 1, &imageMemoryBarrier_g2p);
+    }
+
+    //提交命令缓冲区到队列
+    result_t graphicsBase::SubmitCommandBuffer_Presentation(VkCommandBuffer commandBuffer,
+                                              VkSemaphore semaphore_renderingIsOver = VK_NULL_HANDLE, VkSemaphore semaphore_ownershipIsTransfered = VK_NULL_HANDLE, VkFence fence = VK_NULL_HANDLE) const {
+        static constexpr VkPipelineStageFlags waitDstStage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+        VkSubmitInfo submitInfo = {
+                .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+                .commandBufferCount = 1,
+                .pCommandBuffers = &commandBuffer
+        };
+        if (semaphore_renderingIsOver)
+            submitInfo.waitSemaphoreCount = 1,
+            submitInfo.pWaitSemaphores = &semaphore_renderingIsOver,
+            submitInfo.pWaitDstStageMask = &waitDstStage;
+        if (semaphore_ownershipIsTransfered)
+            submitInfo.signalSemaphoreCount = 1,
+                    submitInfo.pSignalSemaphores = &semaphore_ownershipIsTransfered;
+        VkResult result = vkQueueSubmit(queue_presentation, 1, &submitInfo, fence);
+        if (result)
+            outStream << std::format("[ graphicsBase ] ERROR\nFailed to submit the presentation command buffer!\nError code: {}\n", int32_t(result));
+        return result;
+    }
 } // namespace myVulkan
