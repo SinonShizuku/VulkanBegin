@@ -20,6 +20,7 @@
 #include <numbers>
 #include <cstring>
 #include <stdexcept>
+#include <thread>
 
 //GLM
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
@@ -27,6 +28,7 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
+#define STB_IMAGE_IMPLEMENTATION
 #include <stb/stb_image.h>
 
 //Vulkan
@@ -42,3 +44,8 @@
 #else
 #define ENABLE_DEBUG_MESSENGER false
 #endif
+
+template<std::signed_integral T>
+constexpr bool Between_Closed(T min, T num, T max) {
+    return ((num - min) | (max - num)) >= 0;
+}

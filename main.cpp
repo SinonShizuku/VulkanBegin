@@ -15,6 +15,9 @@ using namespace myVulkan;
 pipelineLayout pipelineLayout_triangle;
 pipeline pipeline_triangle;
 
+//描述符
+descriptorSetLayout descriptorSetLayout_triangle;
+
 //该函数调用easyVulkan::CreateRpwf_Screen()并存储返回的引用到静态变量，避免重复调用easyVulkan::CreateRpwf_Screen()
 const auto& RenderPassAndFramebuffers() {
     static const auto& rpwf = easyVulkan::CreateRpwf_Screen();
@@ -33,7 +36,22 @@ void CreateLayout() {
 //            .pPushConstantRanges = &pushConstantRange
 //    };
 //    pipelineLayout_triangle.Create(pipelineLayoutCreateInfo);
-    VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo = {};
+    VkDescriptorSetLayoutBinding descriptorSetLayoutBinding_trianglePosition = {
+            .binding = 0,                                       //描述符被绑定到0号binding
+            .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,//类型为uniform缓冲区
+            .descriptorCount = 1,                               //个数是1个
+            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT            //在顶点着色器阶段读取uniform缓冲区
+    };
+    VkDescriptorSetLayoutCreateInfo descriptorSetLayoutCreateInfo_triangle = {
+            .bindingCount = 1,
+            .pBindings = &descriptorSetLayoutBinding_trianglePosition
+    };
+    descriptorSetLayout_triangle.Create(descriptorSetLayoutCreateInfo_triangle);
+
+    VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo = {
+            .setLayoutCount = 1,
+            .pSetLayouts = descriptorSetLayout_triangle.Address()
+    };
     pipelineLayout_triangle.Create(pipelineLayoutCreateInfo);
 }
 
@@ -44,7 +62,7 @@ void CreatePipeline() {
     std::filesystem::path sourceDir = std::filesystem::path(__FILE__).parent_path();
 
     // 基于源文件目录和原始相对路径 "../shader/" 构造着色器路径
-    std::filesystem::path vertShaderPath = sourceDir / "shader/InstancedRendering.vert.spv";
+    std::filesystem::path vertShaderPath = sourceDir / "shader/UniformBuffer.vert.spv";
     std::filesystem::path fragShaderPath = sourceDir / "shader/VertexBuffer.frag.spv";
 
     static shaderModule vert(vertShaderPath.c_str());
@@ -92,12 +110,15 @@ void CreatePipeline() {
     Create();
 }
 
+
 int main() {
-    std::cout << "Current C++ version: ";
+    // 初始化窗口
     if (!InitializeWindow({1920,1080})) {
         std::cerr<<"Fatal:Initialize Window failed..."<<std::endl;
         return -1;
     }
+    easyVulkan::BootScreen("/mnt/d/myself/GraphicLearning/Graphic_api/vulkan_learning/source/img.png", VK_FORMAT_R8G8B8A8_UNORM);
+    std::this_thread::sleep_for(std::chrono::seconds(1));//需要#include <thread>
 
     // 定义缓冲帧缓冲
     const auto& [renderPass, framebuffers] = RenderPassAndFramebuffers();
@@ -122,24 +143,43 @@ int main() {
     // 清屏颜色
     VkClearValue clearColor = { .color = { 1.f, 1.f, 1.f, 1.f } };//红色
 
-    // 顶点缓冲
+    // 顶点坐标信息
     vertex vertices[] = {
             { {  .0f, -.5f }, { 1, 0, 0, 1 } },
             { { -.5f,  .5f }, { 0, 1, 0, 1 } },
             { {  .5f,  .5f }, { 0, 0, 1, 1 } }
     };
+
+    // 实例偏移量
     glm::vec2 offsets[] = {
              {  .0f, .0f } ,
              { -.5f, .0f } ,
              {  .5f, .0f }
     };
-//    glm::vec2 pushConstants[] = {
-//            {  .0f, .0f },
-//            { -.5f, .0f },
-//            {  .5f, .0f },
-//    };
+
+    // 推送常量（我也不知道怎么叫）
+    glm::vec2 pushConstants[] = {
+            {  .0f, .0f },
+            { -.5f, .0f },
+            {  .5f, .0f },
+    };
+
+    // 统一缓冲区数据
+    glm::vec2 uniform_positions[] = {
+            {  .0f, .0f }, {},
+            { -.5f, .0f }, {},
+            {  .5f, .0f }, {}
+    };
+
+    // 统一缓冲区
+    uniformBuffer uniformBuffer(sizeof uniform_positions);
+    uniformBuffer.TransferData(uniform_positions);
+
+    // 顶点缓冲
     vertexBuffer vertexBuffer_perVertex(sizeof vertices);
     vertexBuffer_perVertex.TransferData(vertices);
+
+    // 实例缓冲
     vertexBuffer vertexBuffer_perInstance(sizeof offsets);
     vertexBuffer_perInstance.TransferData(offsets);
 
@@ -150,6 +190,23 @@ int main() {
     };
     indexBuffer indexBuffer(sizeof indices);
     indexBuffer.TransferData(indices);
+
+    //// 创建并写入描述符
+    //首先创建描述符池
+    VkDescriptorPoolSize descriptorPoolSizes[] = {
+            { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1 }
+    };
+    descriptorPool descriptorPool(1, descriptorPoolSizes);
+    // 分配描述符集
+    descriptorSet descriptorSet_trianglePosition;
+    descriptorPool.AllocateSets(descriptorSet_trianglePosition, descriptorSetLayout_triangle);
+    // 将uniform缓冲区的信息写入描述符
+    VkDescriptorBufferInfo bufferInfo = {
+            .buffer = uniformBuffer,
+            .offset = 0,
+            .range = sizeof uniform_positions//或VK_WHOLE_SIZE
+    };
+    descriptorSet_trianglePosition.Write(bufferInfo, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
 
     while(!glfwWindowShouldClose(pWindow))
     {
@@ -168,13 +225,16 @@ int main() {
         renderPass.CmdBegin(commandBuffer_graphics, framebuffers[i], {{}, windowSize }, clearColor);
 
         // 渲染命令部分
-        VkBuffer buffers[2] = { vertexBuffer_perVertex, vertexBuffer_perInstance };
 //        VkBuffer buffers[1] = { vertexBuffer_perVertex };
+        VkBuffer buffers[2] = { vertexBuffer_perVertex, vertexBuffer_perInstance };
         VkDeviceSize offsets[2] = {};
         vkCmdBindVertexBuffers(commandBuffer_graphics, 0, 2, buffers, offsets);
 
         vkCmdBindPipeline(commandBuffer_graphics, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_triangle);
 //        vkCmdPushConstants(commandBuffer_graphics, pipelineLayout_triangle, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof pushConstants, &pushConstants);
+
+        vkCmdBindDescriptorSets(commandBuffer_graphics, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                pipelineLayout_triangle, 0, 1, descriptorSet_trianglePosition.Address(), 0, nullptr);
         vkCmdDraw(commandBuffer_graphics, 3, 3, 0, 0);
 //        vkCmdDrawIndexed(commandBuffer_graphics, 6, 1, 0, 0, 0);
 

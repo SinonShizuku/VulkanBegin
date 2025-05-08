@@ -547,6 +547,8 @@ namespace myVulkan {
 			vkGetPhysicalDeviceProperties(physicalDevice, &physicalDeviceProperties);
 			vkGetPhysicalDeviceMemoryProperties(physicalDevice, &physicalDeviceMemoryProperties);
 			outStream << std::format("Renderer: {}\n", physicalDeviceProperties.deviceName);
+        for (auto& i : callbacks_createDevice)
+            i();
 			return VK_SUCCESS;
 	}
 
