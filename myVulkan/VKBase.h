@@ -283,7 +283,7 @@ namespace myVulkan {
     //该函数仅被CreateInstance(...)调用
     result_t graphicsBase::CreateInstance(VkInstanceCreateFlags flags) {
         if constexpr (ENABLE_DEBUG_MESSENGER)
-            AddInstanceLayer("VK_LAYER_KHRONOS_validation");
+            AddInstanceLayer("VK_LAYER_KHRONOS_validation"),
             AddInstanceExtension(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
 
         //创建应用程序信息，不关键

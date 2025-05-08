@@ -1,7 +1,6 @@
 #pragma once
 #include "EasyVKStart.h"
 
-
 namespace myVulkan {
 ////重定义结果类型result_t
 //情况1：根据函数返回值确定是否抛异常
@@ -93,8 +92,9 @@ inline void(*result_t::callback_throw)(VkResult);
     //默认的交换链图像尺寸
     constexpr VkExtent2D defaultWindowSize = { 1280, 720 };
 
-    class graphicsBase {
+    class graphicsBasePlus;
 
+    class graphicsBase {
     private:
         static graphicsBase singleton;
 
@@ -154,6 +154,9 @@ inline void(*result_t::callback_throw)(VkResult);
         //当前取得的交换链图像索引
         uint32_t currentImageIndex = 0;
 
+        //pimpl定义的加类
+        graphicsBasePlus* pPlus = nullptr;//=nullptr可以省略，因为是单例类的成员，自动零初始化
+
         //向层或拓展容器添加字符串指针
         static void AddLayerOrExtension(std::vector<const char*>&container,const char* name);
 
@@ -194,6 +197,11 @@ inline void(*result_t::callback_throw)(VkResult);
         const VkSwapchainCreateInfoKHR& SwapchainCreateInfo() const;
         uint32_t ApiVersion() const;
         uint32_t CurrentImageIndex() const;
+        //*pPlus的Getter
+        static graphicsBasePlus& Plus() { return *singleton.pPlus; }
+
+        //*pPlus的Setter，只允许设置pPlus一次
+        static void Plus(graphicsBasePlus& plus) { if (!singleton.pPlus) singleton.pPlus = &plus; }
 
         // Instance related
         void AddInstanceLayer(const char* layerName);

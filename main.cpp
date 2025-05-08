@@ -1,10 +1,13 @@
+#include <filesystem>
+
 #include "window/GlfwGeneral.hpp"
 #include "myVulkan/VKBase.h"
 #include "myVulkan/VKUtils.h"
 #include "myVulkan/EasyVulkan.hpp"
 #include "myVulkan/VKBase+.h"
-#include <filesystem>
-#include <string>
+
+#include "scene.h"
+
 
 using namespace myVulkan;
 
@@ -18,8 +21,19 @@ const auto& RenderPassAndFramebuffers() {
     return rpwf;
 }
 
+//创建管线布局
 void CreateLayout() {
-    VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo{};
+//    VkPushConstantRange pushConstantRange = {
+//            VK_SHADER_STAGE_VERTEX_BIT,
+//            0,//offset
+//            24//范围大小，3个vec2是24
+//    };
+//    VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo = {
+//            .pushConstantRangeCount = 1,
+//            .pPushConstantRanges = &pushConstantRange
+//    };
+//    pipelineLayout_triangle.Create(pipelineLayoutCreateInfo);
+    VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo = {};
     pipelineLayout_triangle.Create(pipelineLayoutCreateInfo);
 }
 
@@ -30,8 +44,8 @@ void CreatePipeline() {
     std::filesystem::path sourceDir = std::filesystem::path(__FILE__).parent_path();
 
     // 基于源文件目录和原始相对路径 "../shader/" 构造着色器路径
-    std::filesystem::path vertShaderPath = sourceDir / "shader/FirstTriangle.vert.spv";
-    std::filesystem::path fragShaderPath = sourceDir / "shader/FirstTriangle.frag.spv";
+    std::filesystem::path vertShaderPath = sourceDir / "shader/InstancedRendering.vert.spv";
+    std::filesystem::path fragShaderPath = sourceDir / "shader/VertexBuffer.frag.spv";
 
     static shaderModule vert(vertShaderPath.c_str());
     static shaderModule frag(fragShaderPath.c_str());
@@ -50,6 +64,19 @@ void CreatePipeline() {
         pipelineCiPack.scissors.emplace_back(VkOffset2D{}, windowSize);
         pipelineCiPack.multisampleStateCi.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
         pipelineCiPack.colorBlendAttachmentStates.push_back({ .colorWriteMask = 0b1111 });
+
+        //数据来自0号顶点缓冲区，输入频率是逐顶点输入
+        pipelineCiPack.vertexInputBindings.emplace_back(0, sizeof(vertex), VK_VERTEX_INPUT_RATE_VERTEX);
+        //location为0，数据来自0号顶点缓冲区，vec2对应VK_FORMAT_R32G32_SFLOAT，用offsetof计算position在vertex中的起始位置
+        pipelineCiPack.vertexInputAttributes.emplace_back(0, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(vertex, position));
+        //location为1，数据来自0号顶点缓冲区，vec4对应VK_FORMAT_R32G32B32A32_SFLOAT，用offsetof计算color在vertex中的起始位置
+        pipelineCiPack.vertexInputAttributes.emplace_back(1, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(vertex, color));
+
+        //数据来自1号顶点缓冲区，输入频率是逐实例输入
+        pipelineCiPack.vertexInputBindings.emplace_back(1, sizeof(glm::vec2), VK_VERTEX_INPUT_RATE_INSTANCE);
+        //location为2，数据来自1号顶点缓冲区，vec2对应VK_FORMAT_R32G32_SFLOAT
+        pipelineCiPack.vertexInputAttributes.emplace_back(2, 1, VK_FORMAT_R32G32_SFLOAT, 0);
+
         pipelineCiPack.UpdateAllArrays();
         pipelineCiPack.createInfo.stageCount = 2;
         pipelineCiPack.createInfo.pStages = shaderStageCreateInfos_triangle;
@@ -66,6 +93,7 @@ void CreatePipeline() {
 }
 
 int main() {
+    std::cout << "Current C++ version: ";
     if (!InitializeWindow({1920,1080})) {
         std::cerr<<"Fatal:Initialize Window failed..."<<std::endl;
         return -1;
@@ -94,6 +122,35 @@ int main() {
     // 清屏颜色
     VkClearValue clearColor = { .color = { 1.f, 1.f, 1.f, 1.f } };//红色
 
+    // 顶点缓冲
+    vertex vertices[] = {
+            { {  .0f, -.5f }, { 1, 0, 0, 1 } },
+            { { -.5f,  .5f }, { 0, 1, 0, 1 } },
+            { {  .5f,  .5f }, { 0, 0, 1, 1 } }
+    };
+    glm::vec2 offsets[] = {
+             {  .0f, .0f } ,
+             { -.5f, .0f } ,
+             {  .5f, .0f }
+    };
+//    glm::vec2 pushConstants[] = {
+//            {  .0f, .0f },
+//            { -.5f, .0f },
+//            {  .5f, .0f },
+//    };
+    vertexBuffer vertexBuffer_perVertex(sizeof vertices);
+    vertexBuffer_perVertex.TransferData(vertices);
+    vertexBuffer vertexBuffer_perInstance(sizeof offsets);
+    vertexBuffer_perInstance.TransferData(offsets);
+
+    // 索引缓冲
+    uint16_t indices[] = {
+            0, 1, 2,
+            1, 2, 3
+    };
+    indexBuffer indexBuffer(sizeof indices);
+    indexBuffer.TransferData(indices);
+
     while(!glfwWindowShouldClose(pWindow))
     {
         // 当窗口最小化到任务栏时，阻塞运行
@@ -111,8 +168,15 @@ int main() {
         renderPass.CmdBegin(commandBuffer_graphics, framebuffers[i], {{}, windowSize }, clearColor);
 
         // 渲染命令部分
+        VkBuffer buffers[2] = { vertexBuffer_perVertex, vertexBuffer_perInstance };
+//        VkBuffer buffers[1] = { vertexBuffer_perVertex };
+        VkDeviceSize offsets[2] = {};
+        vkCmdBindVertexBuffers(commandBuffer_graphics, 0, 2, buffers, offsets);
+
         vkCmdBindPipeline(commandBuffer_graphics, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_triangle);
-        vkCmdDraw(commandBuffer_graphics, 3, 1, 0, 0);
+//        vkCmdPushConstants(commandBuffer_graphics, pipelineLayout_triangle, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof pushConstants, &pushConstants);
+        vkCmdDraw(commandBuffer_graphics, 3, 3, 0, 0);
+//        vkCmdDrawIndexed(commandBuffer_graphics, 6, 1, 0, 0, 0);
 
         renderPass.CmdEnd(commandBuffer_graphics);
         commandBuffer_graphics.End();
