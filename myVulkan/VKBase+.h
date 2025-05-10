@@ -489,59 +489,6 @@ namespace myVulkan{
         }
     };
 
-    class texture {
-    protected:
-        //根据硬盘或内存地址读取资源
-        static std::unique_ptr<uint8_t[]> LoadFile_Internal(const auto* address, size_t fileSize, VkExtent2D& extent, formatInfo requiredFormatInfo) {
-#ifndef NDEBUG
-            if (!(requiredFormatInfo.rawDataType == formatInfo::floatingPoint && requiredFormatInfo.sizePerComponent == 4) &&
-                !(requiredFormatInfo.rawDataType == formatInfo::integer && Between_Closed<int32_t>(1, requiredFormatInfo.sizePerComponent, 2)))
-                outStream << std::format("[ texture ] ERROR\nRequired format is not available for source image data!\n"),
-                        abort();
-#endif
-            int& width = reinterpret_cast<int&>(extent.width);
-            int& height = reinterpret_cast<int&>(extent.height);
-            int channelCount;
-            void* pImageData = nullptr;
-            if constexpr (std::same_as<decltype(address), const char*>) {
-                if (requiredFormatInfo.rawDataType == formatInfo::integer)
-                    if (requiredFormatInfo.sizePerComponent == 1)
-                        pImageData = stbi_load(address, &width, &height, &channelCount, requiredFormatInfo.componentCount);
-                    else
-                        pImageData = stbi_load_16(address, &width, &height, &channelCount, requiredFormatInfo.componentCount);
-                else
-                    pImageData = stbi_loadf(address, &width, &height, &channelCount, requiredFormatInfo.componentCount);
-                if (!pImageData)
-                    outStream << std::format("[ texture ] ERROR\nFailed to load the file: {}\n", address);
-            }
-            if constexpr (std::same_as<decltype(address), const uint8_t*>) {
-                if (fileSize > INT32_MAX) {
-                    outStream << std::format("[ texture ] ERROR\nFailed to load image data from the given address! Data size must be less than 2G!\n");
-                    return {};
-                }
-                if (requiredFormatInfo.rawDataType == formatInfo::integer)
-                    if (requiredFormatInfo.sizePerComponent == 1)
-                        pImageData = stbi_load_from_memory(address, fileSize, &width, &height, &channelCount, requiredFormatInfo.componentCount);
-                    else
-                        pImageData = stbi_load_16_from_memory(address, fileSize, &width, &height, &channelCount, requiredFormatInfo.componentCount);
-                else
-                    pImageData = stbi_loadf_from_memory(address, fileSize, &width, &height, &channelCount, requiredFormatInfo.componentCount);
-                if (!pImageData)
-                    outStream << std::format("[ texture ] ERROR\nFailed to load image data from the given address!\n");
-            }
-            return std::unique_ptr<uint8_t[]>(static_cast<uint8_t*>(pImageData));
-        }
-    public:
-        [[nodiscard]]
-        static std::unique_ptr<uint8_t[]> LoadFile(const char* filepath, VkExtent2D& extent, formatInfo requiredFormatInfo) {
-            return LoadFile_Internal(filepath, 0, extent, requiredFormatInfo);
-        }
-        [[nodiscard]]
-        static std::unique_ptr<uint8_t[]> LoadFile(const uint8_t* fileBinaries, size_t fileSize, VkExtent2D& extent, formatInfo requiredFormatInfo) {
-            return LoadFile_Internal(fileBinaries, fileSize, extent, requiredFormatInfo);
-        }
-    };
-
     struct imageOperation {
         struct imageMemoryBarrierParameterPack {
             const bool isNeeded = false;                            //是否需要屏障，默认为false
@@ -627,5 +574,314 @@ namespace myVulkan{
                                      0, nullptr, 0, nullptr, 1, &imageMemoryBarrier);
             }
         }
+
+        //出问题了看https://easyvulkan.github.io/Ch5-2%202D%E8%B4%B4%E5%9B%BE%E5%8F%8A%E7%94%9F%E6%88%90Mipmap.html
+        static void CmdGenerateMipmap2d(VkCommandBuffer commandBuffer, VkImage image, VkExtent2D imageExtent, uint32_t mipLevelCount, uint32_t layerCount,
+                                        imageMemoryBarrierParameterPack imb_to, VkFilter minFilter = VK_FILTER_LINEAR) {
+            auto MipmapExtent = [](VkExtent2D imageExtent, uint32_t mipLevel) {
+                VkOffset3D extent = { int32_t(imageExtent.width >> mipLevel), int32_t(imageExtent.height >> mipLevel), 1 };
+                extent.x += !extent.x;
+                extent.y += !extent.y;
+                return extent;
+            };
+            for (uint32_t i = 1; i < mipLevelCount; i++) {
+                VkImageBlit region = {
+                        { VK_IMAGE_ASPECT_COLOR_BIT, i - 1, 0, layerCount },//srcSubresource
+                        { {}, MipmapExtent(imageExtent, i - 1) },           //srcOffsets
+                        { VK_IMAGE_ASPECT_COLOR_BIT, i, 0, layerCount },    //dstSubresource
+                        { {}, MipmapExtent(imageExtent, i) }                //dstOffsets
+                };
+                CmdBlitImage(commandBuffer, image, image, region,
+                             { VK_PIPELINE_STAGE_TRANSFER_BIT, 0, VK_IMAGE_LAYOUT_UNDEFINED },
+                             { VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_READ_BIT, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL }, minFilter);
+            }
+            if (imb_to.isNeeded) {
+                VkImageMemoryBarrier imageMemoryBarrier = {
+                        VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+                        nullptr,
+                        0,
+                        imb_to.access,
+                        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                        imb_to.layout,
+                        VK_QUEUE_FAMILY_IGNORED,
+                        VK_QUEUE_FAMILY_IGNORED,
+                        image,
+                        { VK_IMAGE_ASPECT_COLOR_BIT, 0, mipLevelCount, 0, layerCount }
+                };
+                vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, imb_to.stage, 0,
+                                     0, nullptr, 0, nullptr, 1, &imageMemoryBarrier);
+            }
+        }
     };
+
+    class texture {
+    protected:
+        myVulkan::imageView imageView;
+        myVulkan::imageMemory imageMemory;
+        //--------------------
+        texture() = default;
+        //该函数用于方便地创建imageMemory
+        void CreateImageMemory(VkImageType imageType, VkFormat format, VkExtent3D extent, uint32_t mipLevelCount, uint32_t arrayLayerCount, VkImageCreateFlags flags = 0) {
+            VkImageCreateInfo imageCreateInfo = {
+                    .flags = flags,
+                    .imageType = imageType,
+                    .format = format,
+                    .extent = extent,
+                    .mipLevels = mipLevelCount,
+                    .arrayLayers = arrayLayerCount,
+                    .samples = VK_SAMPLE_COUNT_1_BIT,
+                    .usage = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT
+            };
+            imageMemory.Create(imageCreateInfo, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        }
+        //该函数用于方便地创建imageView
+        void CreateImageView(VkImageViewType viewType, VkFormat format, uint32_t mipLevelCount, uint32_t arrayLayerCount, VkImageViewCreateFlags flags = 0) {
+            imageView.Create(imageMemory.Image(), viewType, format, { VK_IMAGE_ASPECT_COLOR_BIT, 0, mipLevelCount, 0, arrayLayerCount }, flags);
+        }
+        //根据硬盘或内存地址读取资源
+        static std::unique_ptr<uint8_t[]> LoadFile_Internal(const auto* address, size_t fileSize, VkExtent2D& extent, formatInfo requiredFormatInfo) {
+#ifndef NDEBUG
+            if (!(requiredFormatInfo.rawDataType == formatInfo::floatingPoint && requiredFormatInfo.sizePerComponent == 4) &&
+                !(requiredFormatInfo.rawDataType == formatInfo::integer && Between_Closed<int32_t>(1, requiredFormatInfo.sizePerComponent, 2)))
+                outStream << std::format("[ texture ] ERROR\nRequired format is not available for source image data!\n"),
+                        abort();
+#endif
+            int& width = reinterpret_cast<int&>(extent.width);
+            int& height = reinterpret_cast<int&>(extent.height);
+            int channelCount;
+            void* pImageData = nullptr;
+            if constexpr (std::same_as<decltype(address), const char*>) {
+                if (requiredFormatInfo.rawDataType == formatInfo::integer)
+                    if (requiredFormatInfo.sizePerComponent == 1)
+                        pImageData = stbi_load(address, &width, &height, &channelCount, requiredFormatInfo.componentCount);
+                    else
+                        pImageData = stbi_load_16(address, &width, &height, &channelCount, requiredFormatInfo.componentCount);
+                else
+                    pImageData = stbi_loadf(address, &width, &height, &channelCount, requiredFormatInfo.componentCount);
+                if (!pImageData)
+                    outStream << std::format("[ texture ] ERROR\nFailed to load the file: {}\n", address);
+            }
+            if constexpr (std::same_as<decltype(address), const uint8_t*>) {
+                if (fileSize > INT32_MAX) {
+                    outStream << std::format("[ texture ] ERROR\nFailed to load image data from the given address! Data size must be less than 2G!\n");
+                    return {};
+                }
+                if (requiredFormatInfo.rawDataType == formatInfo::integer)
+                    if (requiredFormatInfo.sizePerComponent == 1)
+                        pImageData = stbi_load_from_memory(address, fileSize, &width, &height, &channelCount, requiredFormatInfo.componentCount);
+                    else
+                        pImageData = stbi_load_16_from_memory(address, fileSize, &width, &height, &channelCount, requiredFormatInfo.componentCount);
+                else
+                    pImageData = stbi_loadf_from_memory(address, fileSize, &width, &height, &channelCount, requiredFormatInfo.componentCount);
+                if (!pImageData)
+                    outStream << std::format("[ texture ] ERROR\nFailed to load image data from the given address!\n");
+            }
+            return std::unique_ptr<uint8_t[]>(static_cast<uint8_t*>(pImageData));
+        }
+    public:
+        //Getter
+        VkImageView ImageView() const { return imageView; }
+        VkImage Image() const { return imageMemory.Image(); }
+        const VkImageView* AddressOfImageView() const { return imageView.Address(); }
+        const VkImage* AddressOfImage() const { return imageMemory.AddressOfImage(); }
+        //Const Function
+        //该函数返回写入描述符时需要的信息
+        VkDescriptorImageInfo DescriptorImageInfo(VkSampler sampler) const {
+            return { sampler, imageView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
+        }
+        [[nodiscard]]
+        static std::unique_ptr<uint8_t[]> LoadFile(const char* filepath, VkExtent2D& extent, formatInfo requiredFormatInfo) {
+            return LoadFile_Internal(filepath, 0, extent, requiredFormatInfo);
+        }
+        [[nodiscard]]
+        static std::unique_ptr<uint8_t[]> LoadFile(const uint8_t* fileBinaries, size_t fileSize, VkExtent2D& extent, formatInfo requiredFormatInfo) {
+            return LoadFile_Internal(fileBinaries, fileSize, extent, requiredFormatInfo);
+        }
+        static uint32_t CalculateMipLevelCount(VkExtent2D extent) {
+            return uint32_t(std::floor(std::log2(std::max(extent.width, extent.height)))) + 1;
+        }
+        static void CopyBlitAndGenerateMipmap2d(VkBuffer buffer_copyFrom, VkImage image_copyTo, VkImage image_blitTo, VkExtent2D imageExtent,
+                                                uint32_t mipLevelCount = 1, uint32_t layerCount = 1, VkFilter minFilter = VK_FILTER_LINEAR) {
+            static constexpr imageOperation::imageMemoryBarrierParameterPack imbs[2] = {
+                    { VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL },
+                    { VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_READ_BIT, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL }
+            };
+            //生成mipmap的条件是mip等级大于1
+            bool generateMipmap = mipLevelCount > 1;
+            //发生成blit的条件是源图像和目标图像不同
+            bool blitMipLevel0 = image_copyTo != image_blitTo;
+            //录制命令
+            auto& commandBuffer = graphicsBase::Plus().CommandBuffer_Transfer();
+            commandBuffer.Begin(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
+
+            VkBufferImageCopy region = {
+                    .imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, layerCount },
+                    .imageExtent = { imageExtent.width, imageExtent.height, 1 }
+            };
+            imageOperation::CmdCopyBufferToImage(commandBuffer, buffer_copyFrom, image_copyTo, region,
+                                                 { VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0, VK_IMAGE_LAYOUT_UNDEFINED }, imbs[generateMipmap || blitMipLevel0]);
+
+            //如有必要，进行blit
+            if (blitMipLevel0) {
+                VkImageBlit region = {
+                        { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, layerCount },
+                        { {}, { int32_t(imageExtent.width), int32_t(imageExtent.height), 1 } },
+                        { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, layerCount },
+                        { {}, { int32_t(imageExtent.width), int32_t(imageExtent.height), 1 } }
+                };
+                imageOperation::CmdBlitImage(commandBuffer, image_copyTo, image_blitTo, region,
+                                             { VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0, VK_IMAGE_LAYOUT_UNDEFINED }, imbs[generateMipmap], minFilter);
+            }
+
+            //如有必要，生成mipmap
+            if (generateMipmap)
+                imageOperation::CmdGenerateMipmap2d(commandBuffer, image_blitTo, imageExtent, mipLevelCount, layerCount,
+                                                    { VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL }, minFilter);
+
+
+            commandBuffer.End();
+            //执行命令
+            graphicsBase::Plus().ExecuteCommandBuffer_Graphics(commandBuffer);
+        }
+
+        static void BlitAndGenerateMipmap2d(VkImage image_preinitialized, VkImage image_final, VkExtent2D imageExtent,
+                                            uint32_t mipLevelCount = 1, uint32_t layerCount = 1, VkFilter minFilter = VK_FILTER_LINEAR) {
+            //生成mipmap的条件是mip等级大于1
+            bool generateMipmap = mipLevelCount > 1;
+            //发生成blit的条件是源图像和目标图像不同
+            bool blitMipLevel0 = image_preinitialized != image_final;
+            if (generateMipmap || blitMipLevel0) {
+                auto& commandBuffer = graphicsBase::Plus().CommandBuffer_Transfer();
+                commandBuffer.Begin(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
+
+                //如有必要，从image_preinitialized将原图blit到image_final
+                if (blitMipLevel0) {
+                    VkImageMemoryBarrier imageMemoryBarrier = {
+                            VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+                            nullptr,
+                            0,
+                            VK_ACCESS_TRANSFER_READ_BIT,
+                            VK_IMAGE_LAYOUT_PREINITIALIZED,
+                            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                            VK_QUEUE_FAMILY_IGNORED,
+                            VK_QUEUE_FAMILY_IGNORED,
+                            image_preinitialized,
+                            { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, layerCount }
+                    };
+                    vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
+                                         0, nullptr, 0, nullptr, 1, &imageMemoryBarrier);
+                    VkImageBlit region = {
+                            { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, layerCount },
+                            { {}, { int32_t(imageExtent.width), int32_t(imageExtent.height), 1 } },
+                            { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, layerCount },
+                            { {}, { int32_t(imageExtent.width), int32_t(imageExtent.height), 1 } }
+                    };
+                    if (generateMipmap)
+                        imageOperation::CmdBlitImage(commandBuffer, image_preinitialized, image_final, region,
+                                                     { VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0, VK_IMAGE_LAYOUT_UNDEFINED },
+                                                     { VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_READ_BIT, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL }, minFilter);
+                    else
+                        imageOperation::CmdBlitImage(commandBuffer, image_preinitialized, image_final, region,
+                                                     { VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0, VK_IMAGE_LAYOUT_UNDEFINED },
+                                                     { VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL }, minFilter);
+                }
+
+                //如有必要，生成mipmap
+                if (generateMipmap)
+                    imageOperation::CmdGenerateMipmap2d(commandBuffer, image_final, imageExtent, mipLevelCount, layerCount,
+                                                        { VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL }, minFilter);
+
+                commandBuffer.End();
+                graphicsBase::Plus().ExecuteCommandBuffer_Graphics(commandBuffer);
+            }
+        }
+
+        static VkSamplerCreateInfo SamplerCreateInfo() {
+            return {
+                    .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+                    .magFilter = VK_FILTER_LINEAR,
+                    .minFilter = VK_FILTER_LINEAR,
+                    .mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,
+                    .addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+                    .addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+                    .addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+                    .mipLodBias = 0.f,
+                    .anisotropyEnable = VK_TRUE,
+                    .maxAnisotropy = graphicsBase::Base().PhysicalDeviceProperties().limits.maxSamplerAnisotropy,
+                    .compareEnable = VK_FALSE,
+                    .compareOp = VK_COMPARE_OP_ALWAYS,
+                    .minLod = 0.f,
+                    .maxLod = VK_LOD_CLAMP_NONE,
+                    .borderColor = {},
+                    .unnormalizedCoordinates = VK_FALSE
+            };
+        }
+    };
+
+    class texture2d :public texture {
+    protected:
+        VkExtent2D extent = {};
+        //--------------------
+        void Create_Internal(VkFormat format_initial, VkFormat format_final, bool generateMipmap) {
+            //计算Mipmap级数
+            uint32_t mipLevelCount = generateMipmap ? CalculateMipLevelCount(extent) : 1;
+            //创建图像并分配内存
+            CreateImageMemory(VK_IMAGE_TYPE_2D, format_final, { extent.width, extent.height, 1 }, mipLevelCount, 1);
+            //创建图像视图
+            CreateImageView(VK_IMAGE_VIEW_TYPE_2D, format_final, mipLevelCount, 1);
+            if (format_initial == format_final)
+                //若不需要格式转换，直接从暂存缓冲区拷贝到图像，不发生blit
+                CopyBlitAndGenerateMipmap2d(stagingBuffer::Buffer_MainThread(), imageMemory.Image(), imageMemory.Image(), extent, mipLevelCount, 1);
+            else
+            if (VkImage image_conversion = stagingBuffer::AliasedImage2d_MainThread(format_initial, extent))
+                //若需要格式转换，但是能为暂存缓冲区创建混叠图像，则直接blit
+                BlitAndGenerateMipmap2d(image_conversion, imageMemory.Image(), extent, mipLevelCount, 1);
+            else {
+                //否则，创建新的暂存图像用于中转
+                VkImageCreateInfo imageCreateInfo = {
+                        .imageType = VK_IMAGE_TYPE_2D,
+                        .format = format_initial,
+                        .extent = { extent.width, extent.height, 1 },
+                        .mipLevels = 1,
+                        .arrayLayers = 1,
+                        .samples = VK_SAMPLE_COUNT_1_BIT,
+                        .usage = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT
+                };
+                myVulkan::imageMemory imageMemory_conversion(imageCreateInfo, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+                //从暂存缓冲区拷贝到图像，然后再blit
+                CopyBlitAndGenerateMipmap2d(stagingBuffer::Buffer_MainThread(), imageMemory_conversion.Image(), imageMemory.Image(), extent, mipLevelCount, 1);
+            }
+
+        }
+    public:
+        texture2d() = default;
+        texture2d(const char* filepath, VkFormat format_initial, VkFormat format_final, bool generateMipmap = true) {
+            Create(filepath, format_initial, format_final, generateMipmap);
+        }
+        texture2d(const uint8_t* pImageData, VkExtent2D extent, VkFormat format_initial, VkFormat format_final, bool generateMipmap = true) {
+            Create(pImageData, extent, format_initial, format_final, generateMipmap);
+        }
+        //Getter
+        VkExtent2D Extent() const { return extent; }
+        uint32_t Width() const { return extent.width; }
+        uint32_t Height() const { return extent.height; }
+        //Non-const Function
+        //直接从硬盘读取文件
+        void Create(const char* filepath, VkFormat format_initial, VkFormat format_final, bool generateMipmap = true) {
+            VkExtent2D extent;
+            formatInfo formatInfo = FormatInfo(format_initial);//根据指定的format_initial取得格式信息
+            std::unique_ptr<uint8_t[]> pImageData = LoadFile(filepath, extent, formatInfo);
+            if (pImageData)
+                Create(pImageData.get(), extent, format_initial, format_final, generateMipmap);
+        }
+        //从内存读取文件数据
+        void Create(const uint8_t* pImageData, VkExtent2D extent, VkFormat format_initial, VkFormat format_final, bool generateMipmap = true) {
+            this->extent = extent;
+            size_t imageDataSize = size_t(FormatInfo(format_initial).sizePerPixel) * extent.width * extent.height;
+            stagingBuffer::BufferData_MainThread(pImageData, imageDataSize);//拷贝数据到暂存缓冲区
+            Create_Internal(format_initial, format_final, generateMipmap);
+        }
+    };
+
+
 }
