@@ -210,12 +210,12 @@ namespace myVulkan {
     VkPhysicalDevice graphicsBase::PhysicalDevice() const {
         return physicalDevice;
     }
-    const VkPhysicalDeviceProperties& graphicsBase::PhysicalDeviceProperties() const {
-        return physicalDeviceProperties;
-    }
-    const VkPhysicalDeviceMemoryProperties& graphicsBase::PhysicalDeviceMemoryProperties() const {
-        return physicalDeviceMemoryProperties;
-    }
+    // const VkPhysicalDeviceProperties graphicsBase::PhysicalDeviceProperties() const {
+    //     return physicalDeviceProperties;
+    // }
+    // const VkPhysicalDeviceProperties graphicsBase::PhysicalDeviceMemoryProperties() const {
+    //     return physicalDeviceMemoryProperties;
+    // }
     VkPhysicalDevice graphicsBase::AvailablePhysicalDevice(uint32_t index) const {
         return availablePhysicalDevices[index];
     }
@@ -295,6 +295,7 @@ namespace myVulkan {
         //Vulkan实例创建信息
         VkInstanceCreateInfo instanceCreateInfo = {
                 .sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
+                .pNext = pNext_instanceCreateInfo,
                 .flags = flags,
                 .pApplicationInfo = &applicationInfo,
                 .enabledLayerCount = (uint32_t)instanceLayers.size(),
@@ -499,54 +500,68 @@ namespace myVulkan {
 
     }
     result_t graphicsBase::CreateDevice(VkDeviceCreateFlags flags) {
-			float queuePriority = 1.f;
-			VkDeviceQueueCreateInfo queueCreateInfos[3] = {
-				{
-					.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
-					.queueCount = 1,
-					.pQueuePriorities = &queuePriority },
-				{
-					.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
-					.queueCount = 1,
-					.pQueuePriorities = &queuePriority },
-				{
-					.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
-					.queueCount = 1,
-					.pQueuePriorities = &queuePriority } };
-			uint32_t queueCreateInfoCount = 0;
-			if (queueFamilyIndex_graphics != VK_QUEUE_FAMILY_IGNORED)
-				queueCreateInfos[queueCreateInfoCount++].queueFamilyIndex = queueFamilyIndex_graphics;
-			if (queueFamilyIndex_presentation != VK_QUEUE_FAMILY_IGNORED &&
-				queueFamilyIndex_presentation != queueFamilyIndex_graphics)
-				queueCreateInfos[queueCreateInfoCount++].queueFamilyIndex = queueFamilyIndex_presentation;
-			if (queueFamilyIndex_compute != VK_QUEUE_FAMILY_IGNORED &&
-				queueFamilyIndex_compute != queueFamilyIndex_graphics &&
-				queueFamilyIndex_compute != queueFamilyIndex_presentation)
-				queueCreateInfos[queueCreateInfoCount++].queueFamilyIndex = queueFamilyIndex_compute;
-			VkPhysicalDeviceFeatures physicalDeviceFeatures;
-			vkGetPhysicalDeviceFeatures(physicalDevice, &physicalDeviceFeatures);
-			VkDeviceCreateInfo deviceCreateInfo = {
-				.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
-				.flags = flags,
-				.queueCreateInfoCount = queueCreateInfoCount,
-				.pQueueCreateInfos = queueCreateInfos,
-				.enabledExtensionCount = uint32_t(deviceExtensions.size()),
-				.ppEnabledExtensionNames = deviceExtensions.data(),
-				.pEnabledFeatures = &physicalDeviceFeatures
-			};
-			if (VkResult result = vkCreateDevice(physicalDevice, &deviceCreateInfo, nullptr, &device)) {
-				outStream << std::format("[ graphicsBase ] ERROR\nFailed to create a vulkan logical device!\nError code: {}\n", int32_t(result));
-				return result;
-			}
-			if (queueFamilyIndex_graphics != VK_QUEUE_FAMILY_IGNORED)
-				vkGetDeviceQueue(device, queueFamilyIndex_graphics, 0, &queue_graphics);
-			if (queueFamilyIndex_presentation != VK_QUEUE_FAMILY_IGNORED)
-				vkGetDeviceQueue(device, queueFamilyIndex_presentation, 0, &queue_presentation);
-			if (queueFamilyIndex_compute != VK_QUEUE_FAMILY_IGNORED)
-				vkGetDeviceQueue(device, queueFamilyIndex_compute, 0, &queue_compute);
-			vkGetPhysicalDeviceProperties(physicalDevice, &physicalDeviceProperties);
-			vkGetPhysicalDeviceMemoryProperties(physicalDevice, &physicalDeviceMemoryProperties);
-			outStream << std::format("Renderer: {}\n", physicalDeviceProperties.deviceName);
+		float queuePriority = 1.f;
+		VkDeviceQueueCreateInfo queueCreateInfos[3] = {
+			{
+				.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
+				.queueCount = 1,
+				.pQueuePriorities = &queuePriority },
+			{
+				.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
+				.queueCount = 1,
+				.pQueuePriorities = &queuePriority },
+			{
+				.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
+				.queueCount = 1,
+				.pQueuePriorities = &queuePriority } };
+		uint32_t queueCreateInfoCount = 0;
+		if (queueFamilyIndex_graphics != VK_QUEUE_FAMILY_IGNORED)
+			queueCreateInfos[queueCreateInfoCount++].queueFamilyIndex = queueFamilyIndex_graphics;
+		if (queueFamilyIndex_presentation != VK_QUEUE_FAMILY_IGNORED &&
+			queueFamilyIndex_presentation != queueFamilyIndex_graphics)
+			queueCreateInfos[queueCreateInfoCount++].queueFamilyIndex = queueFamilyIndex_presentation;
+		if (queueFamilyIndex_compute != VK_QUEUE_FAMILY_IGNORED &&
+			queueFamilyIndex_compute != queueFamilyIndex_graphics &&
+			queueFamilyIndex_compute != queueFamilyIndex_presentation)
+			queueCreateInfos[queueCreateInfoCount++].queueFamilyIndex = queueFamilyIndex_compute;
+		// VkPhysicalDeviceFeatures physicalDeviceFeatures;
+		// vkGetPhysicalDeviceFeatures(physicalDevice, &physicalDeviceFeatures);
+        GetPhysicalDeviceFeatures();
+		VkDeviceCreateInfo deviceCreateInfo = {
+			.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
+			// .pNext = pNext_deviceCreateInfo,
+			.flags = flags,
+			.queueCreateInfoCount = queueCreateInfoCount,
+			.pQueueCreateInfos = queueCreateInfos,
+			.enabledExtensionCount = uint32_t(deviceExtensions.size()),
+			.ppEnabledExtensionNames = deviceExtensions.data(),
+			// .pEnabledFeatures = &physicalDeviceFeatures.features
+		};
+
+        void** ppNext = nullptr;
+        if (apiVersion >= VK_API_VERSION_1_1)
+            ppNext = graphicsBase::SetPNext(pNext_deviceCreateInfo, &physicalDeviceFeatures);
+        else
+            deviceCreateInfo.pEnabledFeatures = &physicalDeviceFeatures.features;
+        deviceCreateInfo.pNext = pNext_deviceCreateInfo;
+
+        VkResult result = vkCreateDevice(physicalDevice, &deviceCreateInfo, nullptr, &device);
+        if (ppNext)
+            *ppNext = nullptr;
+		if (result) {
+			outStream << std::format("[ graphicsBase ] ERROR\nFailed to create a vulkan logical device!\nError code: {}\n", int32_t(result));
+			return result;
+		}
+		if (queueFamilyIndex_graphics != VK_QUEUE_FAMILY_IGNORED)
+			vkGetDeviceQueue(device, queueFamilyIndex_graphics, 0, &queue_graphics);
+		if (queueFamilyIndex_presentation != VK_QUEUE_FAMILY_IGNORED)
+			vkGetDeviceQueue(device, queueFamilyIndex_presentation, 0, &queue_presentation);
+		if (queueFamilyIndex_compute != VK_QUEUE_FAMILY_IGNORED)
+			vkGetDeviceQueue(device, queueFamilyIndex_compute, 0, &queue_compute);
+		// vkGetPhysicalDeviceProperties(physicalDevice, &physicalDeviceProperties);
+		// vkGetPhysicalDeviceMemoryProperties(physicalDevice, &physicalDeviceMemoryProperties);
+        GetPhysicalDeviceProperties();
+		outStream << std::format("Renderer: {}\n", physicalDeviceProperties.properties.deviceName);
         for (auto& i : callbacks_createDevice)
             i();
 			return VK_SUCCESS;
@@ -585,6 +600,51 @@ namespace myVulkan {
 	}
     void graphicsBase::DeviceExtensions(const std::vector<const char*>& extensionNames) {
         deviceExtensions = extensionNames;
+    }
+
+    //获取物理设备（新）特性
+    void graphicsBase::GetPhysicalDeviceFeatures(){
+        if (apiVersion >= VK_API_VERSION_1_1) {
+            physicalDeviceFeatures = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
+            physicalDeviceVulkan11Features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES };
+            physicalDeviceVulkan12Features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
+            physicalDeviceVulkan13Features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES };
+            if (apiVersion >= VK_API_VERSION_1_2) {
+                physicalDeviceFeatures.pNext = &physicalDeviceVulkan11Features;
+                physicalDeviceVulkan11Features.pNext = &physicalDeviceVulkan12Features;
+                if (apiVersion >= VK_API_VERSION_1_3)
+                    physicalDeviceVulkan12Features.pNext = &physicalDeviceVulkan13Features;
+            }
+            graphicsBase::SetPNext(physicalDeviceFeatures.pNext, pNext_physicalDeviceFeatures);
+            vkGetPhysicalDeviceFeatures2(physicalDevice, &physicalDeviceFeatures);
+        }
+        else
+            vkGetPhysicalDeviceFeatures(physicalDevice, &physicalDeviceFeatures.features);
+    }
+
+    //获取物理设备属性，逻辑跟GetPhysicalDeviceFeatures()一样，解说略
+    void graphicsBase::GetPhysicalDeviceProperties() {
+        if (apiVersion >= VK_API_VERSION_1_1) {
+            physicalDeviceProperties = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
+            physicalDeviceVulkan11Properties = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_PROPERTIES};
+            physicalDeviceVulkan12Properties = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_PROPERTIES};
+            physicalDeviceVulkan13Properties = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_PROPERTIES};
+            if (apiVersion >= VK_API_VERSION_1_2) {
+                physicalDeviceProperties.pNext = &physicalDeviceVulkan11Properties;
+                physicalDeviceVulkan11Properties.pNext = &physicalDeviceVulkan12Properties;
+                if (apiVersion >= VK_API_VERSION_1_3) {
+                    physicalDeviceVulkan12Properties.pNext = &physicalDeviceVulkan13Properties;
+                }
+                graphicsBase::SetPNext(physicalDeviceProperties.pNext, pNext_physicalDeviceProperties);
+                vkGetPhysicalDeviceProperties2(physicalDevice, &physicalDeviceProperties);
+                physicalDeviceMemoryProperties = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_PROPERTIES_2,
+                                                        pNext_physicalDeviceMemoryProperties };
+                vkGetPhysicalDeviceMemoryProperties2(physicalDevice, &physicalDeviceMemoryProperties);
+            } else
+                vkGetPhysicalDeviceProperties(physicalDevice, &physicalDeviceProperties.properties),
+                        vkGetPhysicalDeviceMemoryProperties(physicalDevice,
+                                                            &physicalDeviceMemoryProperties.memoryProperties);
+        }
     }
 
     //Surface format related

@@ -118,10 +118,30 @@ inline void(*result_t::callback_throw)(VkResult);
 
         //设备
         VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
-        VkPhysicalDeviceProperties physicalDeviceProperties{};
-        VkPhysicalDeviceMemoryProperties physicalDeviceMemoryProperties{};
+//        VkPhysicalDeviceProperties physicalDeviceProperties{};
+//        VkPhysicalDeviceMemoryProperties physicalDeviceMemoryProperties{};
         std::vector<VkPhysicalDevice> availablePhysicalDevices;
         std::vector<const char*> deviceExtensions;
+
+        //物理设备特性
+        VkPhysicalDeviceFeatures2 physicalDeviceFeatures;
+        VkPhysicalDeviceVulkan11Features physicalDeviceVulkan11Features;//Provided by VK_API_VERSION_1_2
+        VkPhysicalDeviceVulkan12Features physicalDeviceVulkan12Features;
+        VkPhysicalDeviceVulkan13Features physicalDeviceVulkan13Features;
+
+        //物理设备属性
+        VkPhysicalDeviceProperties2 physicalDeviceProperties;
+        VkPhysicalDeviceVulkan11Properties physicalDeviceVulkan11Properties;//Provided by VK_API_VERSION_1_2
+        VkPhysicalDeviceVulkan12Properties physicalDeviceVulkan12Properties;
+        VkPhysicalDeviceVulkan13Properties physicalDeviceVulkan13Properties;
+        VkPhysicalDeviceMemoryProperties2 physicalDeviceMemoryProperties;   //截至Vulkan1.3为止，不存在VkPhysicalDeviceVulkan11MemoryProperties等结构体
+
+        //pNext链参数
+        void* pNext_instanceCreateInfo;
+        void* pNext_deviceCreateInfo;
+        void* pNext_physicalDeviceFeatures;
+        void* pNext_physicalDeviceProperties;
+        void* pNext_physicalDeviceMemoryProperties;
 
         //图形队列
         uint32_t queueFamilyIndex_graphics = VK_QUEUE_FAMILY_IGNORED;
@@ -168,6 +188,42 @@ inline void(*result_t::callback_throw)(VkResult);
         //该函数被CreateSwapchain(...)和RecreateSwapchain()调用
         result_t CreateSwapchain_Internal();
 
+        //获取物理设备特性与属性
+        void GetPhysicalDeviceFeatures();
+        void GetPhysicalDeviceProperties();
+
+        static void** SetPNext(void*& pBegin, void* pNext, bool allowDuplicate = false) {
+            struct vkStructureHead {
+                VkStructureType sType;
+                void* pNext;
+            };
+
+            if (!pNext)
+                return nullptr;
+
+            // 使用 std::function 存储递归 lambda
+            std::function<void**(void*&, void*, bool)> SetPNext_Internal;
+            SetPNext_Internal = [&SetPNext_Internal](void*& pCurrentNode, void* pNext, bool allowDuplicate) -> void** {
+                if (pCurrentNode == pNext)
+                    return nullptr;
+
+                if (pCurrentNode) {
+                    if (!allowDuplicate &&
+                        reinterpret_cast<vkStructureHead*>(pCurrentNode)->sType == reinterpret_cast<vkStructureHead*>(pNext)->sType) {
+                        return nullptr;
+                        }
+                    // 递归调用
+                    return SetPNext_Internal(reinterpret_cast<vkStructureHead*>(pCurrentNode)->pNext, pNext, allowDuplicate);
+                } else {
+                    // 找到末尾，插入 pNext
+                    pCurrentNode = pNext;
+                    return &pCurrentNode;
+                }
+            };
+
+            return SetPNext_Internal(pBegin, pNext, allowDuplicate);
+        }
+
     public:
         static graphicsBase& Base();
 
@@ -176,8 +232,8 @@ inline void(*result_t::callback_throw)(VkResult);
         VkDebugUtilsMessengerEXT DebugMessenger() const;
         VkSurfaceKHR Surface() const;
         VkPhysicalDevice PhysicalDevice() const;
-        const VkPhysicalDeviceProperties& PhysicalDeviceProperties() const;
-        const VkPhysicalDeviceMemoryProperties& PhysicalDeviceMemoryProperties() const;
+//        const VkPhysicalDeviceProperties& PhysicalDeviceProperties() const;
+//        const VkPhysicalDeviceMemoryProperties& PhysicalDeviceMemoryProperties() const;
         VkPhysicalDevice AvailablePhysicalDevice(uint32_t index) const;
         uint32_t AvailablePhysicalDeviceCount() const;
         VkDevice Device() const;
@@ -199,6 +255,16 @@ inline void(*result_t::callback_throw)(VkResult);
         uint32_t CurrentImageIndex() const;
         //*pPlus的Getter
         static graphicsBasePlus& Plus() { return *singleton.pPlus; }
+        //物理设备特性的Getter
+        constexpr const VkPhysicalDeviceFeatures PhysicalDeviceFeatures() const { return physicalDeviceFeatures.features; }
+        constexpr const VkPhysicalDeviceVulkan11Features& PhysicalDeviceVulkan11Features() const { return physicalDeviceVulkan11Features; }
+        constexpr const VkPhysicalDeviceVulkan12Features& PhysicalDeviceVulkan12Features() const { return physicalDeviceVulkan12Features; }
+        constexpr const VkPhysicalDeviceVulkan13Features& PhysicalDeviceVulkan13Features() const { return physicalDeviceVulkan13Features; }
+        constexpr const VkPhysicalDeviceProperties PhysicalDeviceProperties() const { return physicalDeviceProperties.properties; }
+        constexpr const VkPhysicalDeviceVulkan11Properties& PhysicalDeviceVulkan11Properties() const { return physicalDeviceVulkan11Properties; }
+        constexpr const VkPhysicalDeviceVulkan12Properties& PhysicalDeviceVulkan12Properties() const { return physicalDeviceVulkan12Properties; }
+        constexpr const VkPhysicalDeviceVulkan13Properties& PhysicalDeviceVulkan13Properties() const { return physicalDeviceVulkan13Properties; }
+        constexpr const VkPhysicalDeviceMemoryProperties PhysicalDeviceMemoryProperties() const { return physicalDeviceMemoryProperties.memoryProperties;}
 
         //*pPlus的Setter，只允许设置pPlus一次
         static void Plus(graphicsBasePlus& plus) { if (!singleton.pPlus) singleton.pPlus = &plus; }
@@ -261,6 +327,26 @@ inline void(*result_t::callback_throw)(VkResult);
 
         result_t SubmitCommandBuffer_Presentation(VkCommandBuffer commandBuffer, VkSemaphore semaphore_renderingIsOver,
                                                   VkSemaphore semaphore_ownershipIsTransfered, VkFence fence) const;
+        //以下各函数将指定的next结构体添加到各个pNext链末尾
+        void AddNextStructure_InstanceCreateInfo(auto& next, bool allowDuplicate = false) {
+            SetPNext(pNext_instanceCreateInfo, &next, allowDuplicate);
+        }
+        void AddNextStructure_DeviceCreateInfo(auto& next, bool allowDuplicate = false) {
+            SetPNext(pNext_deviceCreateInfo, &next, allowDuplicate);
+        }
+        void AddNextStructure_PhysicalDeviceFeatures(auto& next, bool allowDuplicate = false) {
+            SetPNext(pNext_physicalDeviceFeatures, &next, allowDuplicate);
+        }
+        void AddNextStructure_PhysicalDeviceProperties(auto& next, bool allowDuplicate = false) {
+            SetPNext(pNext_physicalDeviceProperties, &next, allowDuplicate);
+        }
+        void AddNextStructure_PhysicalDeviceMemoryProperties(auto& next, bool allowDuplicate = false) {
+            SetPNext(pNext_physicalDeviceMemoryProperties, &next, allowDuplicate);
+        }
+        void AddNextStructure_SwapchainCreateInfo(auto& next, bool allowDuplicate = false) {
+            SetPNext(const_cast<void*&>(swapchainCreateInfo.pNext), &next, allowDuplicate);
+        }
+
     }; // end class graphicsBase
 
 } // namespace myVulkan
