@@ -14,6 +14,14 @@ namespace easyVulkan {
     struct renderPassWithFramebuffers {
         myVulkan::renderPass renderPass;
         std::vector<framebuffer> framebuffers;
+        ~renderPassWithFramebuffers() {
+            for (auto& fb : framebuffers) {
+                if (fb) {
+                    fb.~framebuffer();
+                }
+            }
+            framebuffers.clear();
+        }
     };
 
     //创建一个最简单的渲染通道：直接渲染到交换链图像，且不做深度测试等任何测试的渲染通道
@@ -63,19 +71,19 @@ namespace easyVulkan {
         rpwf.renderPass.Create(renderPassCreateInfo);
 
         //创建帧缓冲
-        rpwf.framebuffers.resize(graphicsBase::Base().SwapchainImageCount());
-        VkFramebufferCreateInfo framebufferCreateInfo = {
-                .renderPass = rpwf.renderPass,
-                .attachmentCount = 1,
-                .width = windowSize.width,
-                .height = windowSize.height,
-                .layers = 1
-        };
-        for (size_t i = 0; i < graphicsBase::Base().SwapchainImageCount(); i++) {
-            VkImageView attachment = graphicsBase::Base().SwapchainImageView(i);
-            framebufferCreateInfo.pAttachments = &attachment;
-            rpwf.framebuffers[i].Create(framebufferCreateInfo);
-        }
+        // rpwf.framebuffers.resize(graphicsBase::Base().SwapchainImageCount());
+        // VkFramebufferCreateInfo framebufferCreateInfo = {
+        //         .renderPass = rpwf.renderPass,
+        //         .attachmentCount = 1,
+        //         .width = windowSize.width,
+        //         .height = windowSize.height,
+        //         .layers = 1
+        // };
+        // for (size_t i = 0; i < graphicsBase::Base().SwapchainImageCount(); i++) {
+        //     VkImageView attachment = graphicsBase::Base().SwapchainImageView(i);
+        //     framebufferCreateInfo.pAttachments = &attachment;
+        //     rpwf.framebuffers[i].Create(framebufferCreateInfo);
+        // }
 
         //定义创建和销毁帧缓冲的回调函数
         auto CreateFramebuffers = [] {
@@ -101,7 +109,7 @@ namespace easyVulkan {
 
         ExecuteOnce(rpwf); //防止再次调用本函数时，重复添加回调函数
         graphicsBase::Base().AddCallback_CreateSwapchain(CreateFramebuffers);
-        graphicsBase::Base().AddCallback_DestroySwapchain(DestroyFramebuffers);
+        // graphicsBase::Base().AddCallback_DestroySwapchain(DestroyFramebuffers);
 
         return rpwf;
     }

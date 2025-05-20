@@ -564,7 +564,7 @@ namespace myVulkan {
 		outStream << std::format("Renderer: {}\n", physicalDeviceProperties.properties.deviceName);
         for (auto& i : callbacks_createDevice)
             i();
-			return VK_SUCCESS;
+        return VK_SUCCESS;
 	}
 
     result_t graphicsBase::CheckDeviceExtensions(arrayRef<const char*> extensionsToCheck, const char* layerName) const {
