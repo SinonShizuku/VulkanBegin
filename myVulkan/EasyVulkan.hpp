@@ -70,21 +70,6 @@ namespace easyVulkan {
         };
         rpwf.renderPass.Create(renderPassCreateInfo);
 
-        //创建帧缓冲
-        // rpwf.framebuffers.resize(graphicsBase::Base().SwapchainImageCount());
-        // VkFramebufferCreateInfo framebufferCreateInfo = {
-        //         .renderPass = rpwf.renderPass,
-        //         .attachmentCount = 1,
-        //         .width = windowSize.width,
-        //         .height = windowSize.height,
-        //         .layers = 1
-        // };
-        // for (size_t i = 0; i < graphicsBase::Base().SwapchainImageCount(); i++) {
-        //     VkImageView attachment = graphicsBase::Base().SwapchainImageView(i);
-        //     framebufferCreateInfo.pAttachments = &attachment;
-        //     rpwf.framebuffers[i].Create(framebufferCreateInfo);
-        // }
-
         //定义创建和销毁帧缓冲的回调函数
         auto CreateFramebuffers = [] {
             rpwf.framebuffers.resize(graphicsBase::Base().SwapchainImageCount());
@@ -109,7 +94,7 @@ namespace easyVulkan {
 
         ExecuteOnce(rpwf); //防止再次调用本函数时，重复添加回调函数
         graphicsBase::Base().AddCallback_CreateSwapchain(CreateFramebuffers);
-        // graphicsBase::Base().AddCallback_DestroySwapchain(DestroyFramebuffers);
+        graphicsBase::Base().AddCallback_DestroySwapchain(DestroyFramebuffers);
 
         return rpwf;
     }
