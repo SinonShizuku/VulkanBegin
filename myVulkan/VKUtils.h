@@ -306,7 +306,7 @@ namespace myVulkan{
             VkResult result = vkCreateGraphicsPipelines(graphicsBase::Base().Device(), VK_NULL_HANDLE, 1, &createInfo, nullptr, &handle);
             if (result)
                 outStream << std::format("[ pipeline ] ERROR\nFailed to create a graphics pipeline!\nError code: {}\n", int32_t(result));
-            return result;
+                    return result;
         }
         result_t Create(VkComputePipelineCreateInfo& createInfo) {
             createInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;

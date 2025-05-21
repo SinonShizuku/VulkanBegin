@@ -1,4 +1,4 @@
-#include <filesystem>
+#pragma once
 
 #include "window/GlfwGeneral.hpp"
 #include "myVulkan/VKBase.h"
@@ -62,9 +62,9 @@ void CreatePipeline() {
         graphicsPipelineCreateInfoPack pipelineCiPack;
         pipelineCiPack.createInfo.layout = pipelineLayout_texture;
         pipelineCiPack.createInfo.renderPass = RenderPassAndFramebuffers().renderPass;
-        pipelineCiPack.vertexInputBindings.emplace_back(0, sizeof(vertex), VK_VERTEX_INPUT_RATE_VERTEX);
-        pipelineCiPack.vertexInputAttributes.emplace_back(0, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(vertex, position));
-        pipelineCiPack.vertexInputAttributes.emplace_back(1, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(vertex, texCoord));
+        pipelineCiPack.vertexInputBindings.emplace_back(0, sizeof(vertex2d), VK_VERTEX_INPUT_RATE_VERTEX);
+        pipelineCiPack.vertexInputAttributes.emplace_back(0, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(vertex2d, position));
+        pipelineCiPack.vertexInputAttributes.emplace_back(1, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(vertex2d, texCoord));
         pipelineCiPack.inputAssemblyStateCi.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;
         pipelineCiPack.viewports.emplace_back(0.f, 0.f, float(windowSize.width), float(windowSize.height), 0.f, 1.f);
         pipelineCiPack.scissors.emplace_back(VkOffset2D{}, windowSize);
@@ -124,14 +124,14 @@ int main() {
     // 清屏颜色
     VkClearValue clearColor = { .color = { 1.f, 1.f, 1.f, 1.f } };//红色
 
-    vertex vertices[] = {
+    vertex2d vertices2d[] = {
             { { -.5f, -.5f }, { 0, 0 } },
             { {  .5f, -.5f }, { 1, 0 } },
             { { -.5f,  .5f }, { 0, 1 } },
             { {  .5f,  .5f }, { 1, 1 } }
     };
-    vertexBuffer vertexBuffer(sizeof vertices);
-    vertexBuffer.TransferData(vertices);
+    vertexBuffer vertexBuffer(sizeof vertices2d);
+    vertexBuffer.TransferData(vertices2d);
 
 
     // 索引缓冲

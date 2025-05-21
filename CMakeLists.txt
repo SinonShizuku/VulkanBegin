@@ -3,7 +3,7 @@ project(vulkan_learning)
 
 set(CMAKE_CXX_STANDARD 20)
 
-add_executable(vulkan_learning main.hpp
+add_executable(vulkan_learning texture_test.hpp
         myVulkan/EasyVKStart.h
         myVulkan/VKBase.h
         window/GlfwGeneral.hpp
@@ -15,6 +15,7 @@ add_executable(vulkan_learning main.hpp
         scene.h
         DrawLine.hpp
         main.cpp
+        depth_viusalize.hpp
 )
 
 target_link_libraries(vulkan_learning glfw vulkan)
