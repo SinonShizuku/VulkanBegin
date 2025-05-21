@@ -755,7 +755,9 @@ namespace myVulkan{
             Create(image, viewType, format, subresourceRange, flags);
         }
         imageView(imageView&& other) noexcept { MoveHandle; }
-        ~imageView() { DestroyHandleBy(vkDestroyImageView); }
+        ~imageView() {
+            DestroyHandleBy(vkDestroyImageView);
+        }
         //Getter
         DefineHandleTypeOperator;
         DefineAddressFunction;

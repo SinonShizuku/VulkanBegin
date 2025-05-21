@@ -320,6 +320,7 @@ const auto& CreateRpwf_Canvas(VkExtent2D canvasSize = windowSize) {
     }
 
     std::vector<depthStencilAttachment> dsas_screenWithDS;
+
     const auto& CreateRpwf_ScreenWithDS(VkFormat depthStencilFormat = VK_FORMAT_D24_UNORM_S8_UINT) {
         static renderPassWithFramebuffers rpwf;
         static VkFormat _depthStencilFormat = depthStencilFormat;//因为一会儿需要用lambda定义重建交换链时的回调函数，把格式存到静态变量

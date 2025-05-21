@@ -8,6 +8,9 @@
 
 #include "scene.h"
 
+// 当前目录
+std::filesystem::path rootDir = std::filesystem::path(__FILE__).parent_path();
+
 pipelineLayout pipelineLayout_into3d;
 pipeline pipeline_into3d;
 const auto& RenderPassAndFramebuffers_Screen() {
@@ -24,8 +27,8 @@ void CreateLayout() {
 }
 
 void CreatePipeline() {
-	static shaderModule vert("shader3d/Into3D.vert.spv");
-	static shaderModule frag("shader3d/Into3D.frag.spv");
+	static shaderModule vert((rootDir / "shader3d/Into3D.vert.spv").c_str());
+	static shaderModule frag((rootDir / "shader3d/Into3D.frag.spv").c_str());
 	static VkPipelineShaderStageCreateInfo shaderStageCreateInfos_into3d[2] = {
 		vert.StageCreateInfo(VK_SHADER_STAGE_VERTEX_BIT),
 		frag.StageCreateInfo(VK_SHADER_STAGE_FRAGMENT_BIT)

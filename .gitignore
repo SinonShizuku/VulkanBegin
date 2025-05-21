@@ -43,4 +43,4 @@ build/
 out/
 
 # shader compile
-shader/*.spv
+shader*/*.spv
