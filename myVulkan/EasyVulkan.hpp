@@ -24,6 +24,78 @@ namespace easyVulkan {
         }
     };
 
+    //用来创建图像附件、渲染通道、帧缓冲
+    struct renderPassWithFramebuffer {
+        myVulkan::renderPass renderPass;
+        myVulkan::framebuffer framebuffer;
+    };
+
+    colorAttachment ca_canvas;
+
+const auto& CreateRpwf_Canvas(VkExtent2D canvasSize = windowSize) {
+    static renderPassWithFramebuffer rpwf;
+
+    ca_canvas.Create(graphicsBase::Base().SwapchainCreateInfo().imageFormat, canvasSize, 1, VK_SAMPLE_COUNT_1_BIT,
+        VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT);
+
+    VkAttachmentDescription attachmentDescription = {
+        .format = graphicsBase::Base().SwapchainCreateInfo().imageFormat,
+        .samples = VK_SAMPLE_COUNT_1_BIT,
+        .loadOp = VK_ATTACHMENT_LOAD_OP_LOAD,
+        .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+        .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+        .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+        .initialLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        .finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+    };
+    VkSubpassDependency subpassDependencies[2] = {
+        {
+            .srcSubpass = VK_SUBPASS_EXTERNAL,
+            .dstSubpass = 0,
+            .srcStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+            .dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+            .srcAccessMask = 0,
+            .dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+            .dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT },
+        {
+            .srcSubpass = 0,
+            .dstSubpass = VK_SUBPASS_EXTERNAL,
+            .srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+            .dstStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+            .srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+            .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
+            .dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT }
+    };
+    VkAttachmentReference attachmentReference = { 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
+    VkSubpassDescription subpassDescription = {
+        .pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,
+        .colorAttachmentCount = 1,
+        .pColorAttachments = &attachmentReference
+    };
+    VkRenderPassCreateInfo renderPassCreateInfo = {
+        .attachmentCount = 1,
+        .pAttachments = &attachmentDescription,
+        .subpassCount = 1,
+        .pSubpasses = &subpassDescription,
+        .dependencyCount = 2,
+        .pDependencies = subpassDependencies,
+    };
+
+    rpwf.renderPass.Create(renderPassCreateInfo);
+
+    VkFramebufferCreateInfo framebufferCreateInfo = {
+        .renderPass = rpwf.renderPass,
+        .attachmentCount = 1,
+        .pAttachments = ca_canvas.AddressOfImageView(),
+        .width = canvasSize.width,
+        .height = canvasSize.height,
+        .layers = 1
+    };
+    rpwf.framebuffer.Create(framebufferCreateInfo);
+
+    return rpwf;
+}
+
     //创建一个最简单的渲染通道：直接渲染到交换链图像，且不做深度测试等任何测试的渲染通道
     const auto& CreateRpwf_Screen() {
         static renderPassWithFramebuffers rpwf;
@@ -217,4 +289,32 @@ namespace easyVulkan {
         //别忘了释放命令缓冲区
         graphicsBase::Plus().CommandPool_Graphics().FreeBuffers(commandBuffer);
     }
+
+    //清屏
+    void CmdClearCanvas(VkCommandBuffer commandBuffer, VkClearColorValue clearColor) {
+    VkImageSubresourceRange imageSubresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+    VkImageMemoryBarrier imageMemoryBarrier = {
+        VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+        nullptr,
+        0,
+        VK_ACCESS_TRANSFER_WRITE_BIT,
+        VK_IMAGE_LAYOUT_UNDEFINED,
+        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        VK_QUEUE_FAMILY_IGNORED,
+        VK_QUEUE_FAMILY_IGNORED,
+        ca_canvas.Image(),
+        imageSubresourceRange
+    };
+    vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
+        0, nullptr, 0, nullptr, 1, &imageMemoryBarrier);
+
+    vkCmdClearColorImage(commandBuffer, ca_canvas.Image(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &clearColor, 1, &imageSubresourceRange);
+
+    imageMemoryBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    imageMemoryBarrier.dstAccessMask = 0;
+    imageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    imageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, 0,
+        0, nullptr, 0, nullptr, 1, &imageMemoryBarrier);
+}
 }

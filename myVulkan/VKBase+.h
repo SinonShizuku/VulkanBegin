@@ -224,8 +224,17 @@ namespace myVulkan{
         }
         return format_32BitFloat;
     }
+
     inline const VkFormatProperties& FormatProperties(VkFormat format) {
         return graphicsBase::Plus().FormatProperties(format);
+    }
+
+    //可知某种格式的图像能否用作颜色/深度模板附件
+    inline bool colorAttachment::FormatAvailability(VkFormat format, bool supportBlending) {
+        return FormatProperties(format).optimalTilingFeatures & VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT << uint32_t(supportBlending);
+    }
+    inline bool depthStencilAttachment::FormatAvailability(VkFormat format) {
+        return FormatProperties(format).optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT;
     }
 
     //暂存缓冲区
